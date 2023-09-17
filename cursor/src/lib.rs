@@ -1,26 +1,38 @@
-use im::Vector;
+use persi_ds::sync::{
+    list::{concat, reverse},
+    List,
+};
 use std::fmt;
 
+// #[derive(PartialEq)]
 pub struct ListCursor<T> {
-    previous: Vector<T>,
-    next: Vector<T>,
+    previous: List<T>,
+    next: List<T>,
 }
 
-impl<T> ListCursor<T>
+impl<T> PartialEq for ListCursor<T>
 where
-    T: Clone,
+    T: PartialEq + Clone,
 {
-    pub fn new(list: Vector<T>) -> Self {
+    fn eq(&self, other: &Self) -> bool {
+        &self.previous == &other.previous && &self.next == &other.next
+    }
+}
+impl<T> ListCursor<T> {
+    pub fn new(list: List<T>) -> Self {
         Self {
-            previous: Vector::new(),
+            previous: List::new(),
             next: list,
         }
     }
 
-    pub fn rebuild(self) -> Vector<T> {
-        let Self { previous, mut next } = self;
-        next.extend(previous.into_iter().rev());
-        next
+    pub fn rebuild(&self) -> List<T>
+    where
+        T: Clone,
+    {
+        // let Self { previous, mut next } = self;
+        // next.extend(previous.into_iter().rev());
+        concat(&reverse(self.previous.clone()), &self.next)
     }
 }
 
@@ -34,38 +46,30 @@ impl<T: fmt::Debug + Clone> fmt::Debug for ListCursor<T> {
     }
 }
 
-impl<T> PartialEq for ListCursor<T>
-where
-    T: PartialEq + Clone,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.previous == other.previous && self.next == other.next
-    }
-}
-
-impl<T> ListCursor<T>
-where
-    T: Clone,
-{
-    pub fn next(mut self) -> Option<Self> {
-        match self.next.pop_front() {
-            None => None,
-            Some(t) => {
-                let Self { mut previous, next } = self;
-                previous.push_front(t);
-                Some(Self { previous, next })
-            }
+impl<T: Clone> ListCursor<T> {
+    pub fn next(&self) -> Option<ListCursor<T>> {
+        if self.next.is_empty() {
+            return None;
+        }
+        match self.next.head_tail() {
+            (None, _) => None,
+            (Some(head), tail) => Some(ListCursor {
+                previous: self.previous.pushed_front(head),
+                next: tail,
+            }),
         }
     }
 
-    pub fn prev(mut self) -> Option<Self> {
-        match self.previous.pop_front() {
-            None => None,
-            Some(t) => {
-                let Self { previous, mut next } = self;
-                next.push_front(t);
-                Some(Self { previous, next })
-            }
+    pub fn prev(&self) -> Option<ListCursor<T>> {
+        if self.previous.is_empty() {
+            return None;
+        }
+        match self.previous.head_tail() {
+            (None, _) => None,
+            (Some(head), tail) => Some(ListCursor {
+                previous: tail,
+                next: self.next.pushed_front(head),
+            }),
         }
     }
 }
@@ -76,69 +80,61 @@ mod tests {
 
     use super::*;
 
+    use persi_ds::synced_list;
+
     #[test]
     fn can_rebuild_vec_from_cursor() {
-        let expected = vector![1, 2, 3];
-        let cursor = ListCursor::new(expected.clone());
+        let cursor = ListCursor {
+            previous: synced_list![1, 2],
+            next: synced_list![4, 3],
+        };
+        let expected = synced_list![4, 3, 2, 1];
         assert_eq!(cursor.rebuild(), expected);
     }
 
     #[test]
-    fn next_works() {
-        let cursor = ListCursor::new(vector![1, 2, 3]);
+    fn next_and_prev() {
+        let cursor = ListCursor::new(synced_list![3, 2, 1]);
 
         let cursor1 = cursor.next().unwrap();
+
         let expected1 = ListCursor {
-            previous: vector![1],
-            next: vector![2, 3],
+            previous: synced_list![1],
+            next: synced_list![3, 2],
         };
+
         assert_eq!(cursor1, expected1);
 
         let cursor2 = cursor1.next().unwrap();
+
         let expected2 = ListCursor {
-            previous: vector![2, 1],
-            next: vector![3],
+            previous: synced_list![1, 2],
+            next: synced_list!(3),
         };
         assert_eq!(cursor2, expected2);
 
         let cursor3 = cursor2.next().unwrap();
+
         let expected3 = ListCursor {
-            previous: vector![3, 2, 1],
-            next: vector![],
+            previous: synced_list!(1, 2, 3),
+            next: synced_list!(),
         };
         assert_eq!(cursor3, expected3);
 
         assert_eq!(cursor3.next(), None);
-    }
 
-    #[test]
-    fn prev_works() {
-        let cursor = ListCursor {
-            previous: vector![1, 2, 3],
-            next: vector![],
-        };
+        let cursor4 = cursor3.prev().unwrap();
 
-        let cursor1 = cursor.prev().unwrap();
-        let expected1 = ListCursor {
-            previous: vector![2, 3],
-            next: vector![1],
-        };
-        assert_eq!(cursor1, expected1);
+        assert_eq!(cursor4, expected2);
 
-        let cursor2 = cursor1.prev().unwrap();
-        let expected2 = ListCursor {
-            previous: vector![3],
-            next: vector![2, 1],
-        };
-        assert_eq!(cursor2, expected2);
+        let cursor5 = cursor4.prev().unwrap();
 
-        let cursor3 = cursor2.prev().unwrap();
-        let expected3 = ListCursor {
-            previous: vector![],
-            next: vector![3, 2, 1],
-        };
-        assert_eq!(cursor3, expected3);
+        assert_eq!(cursor5, expected1);
 
-        assert_eq!(cursor3.prev(), None);
+        let cursor6 = cursor5.prev().unwrap();
+
+        assert_eq!(cursor6, cursor);
+
+        assert_eq!(cursor6.prev(), None);
     }
 }
